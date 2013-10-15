@@ -4,7 +4,17 @@
 
 import urllib.request
 import re
+import operator
 from collections import Counter
+
+class Util:
+    @staticmethod
+    def tokenize(text):
+        """tokenize all words in text
+        BUG: consider the word patrick's will become [patrick, s]
+        need to firgure out how to consider ' into words
+        """
+        return re.findall(r"[a-z]+", text)
 
 class FileConnector:
     """File Connector that parses files, provide data to data provider
@@ -13,12 +23,13 @@ class FileConnector:
     notes:
         assuming file connector is static, meaning once the files are loaded, it cannot be removed. enhancement later?
 
-    <<< fc = FileConnector(("http://www.gutenberg.org/cache/epub/100/pg100.txt","D:\Work\Apollo\data\shakespeare.txt"))
-    <<< fc.isWebUrl("http://google.com")
+    >>> fc = FileConnector(("http://www.gutenberg.org/cache/epub/100/pg100.txt","D:\Work\Apollo\data\shakespeare.txt"))
+    >>> fc.isWebUrl("http://google.com")
     True
-    <<< fc.isWebUrl("D:\ipython")
+    >>> fc.isWebUrl("D:\ipython")
     False
-
+    >>> fc.tokenize("haha wor.ld hello man! this is great")
+    ['haha', 'wor', 'ld', 'hello', 'man', 'this', 'is', 'great']
     """
 
     def __init__(self, files = ()):
@@ -26,22 +37,16 @@ class FileConnector:
 
     def getData(self):
         tokens = []
-        for path in files:
+        for path in self.files:
             t = self.parseFile(path)
             tokens.extend(t)
         return tokens
 
     def parseFile(self, path):
         text = self.getFile(path)
-        t = self.tokenize(text)
+        t = Util.tokenize(text)
         return t
-
-    def tokenize(self, text):
-        """tokenize all words in text
-        BUG: consider the word patrick's will become [patrick, s]
-        need to firgure out how to consider ' into words
-        """
-        return re.findall(r"[a-z]+", text)
+        
 
     def getFile(self, path):
         if self.isWebUrl(path):
@@ -92,8 +97,8 @@ class redict(dict):
     usage:
     d = {'hello':1, 'hi': 2}
     rd = redict(d)
-    for i in rd[r"[a-z]+"]:
-        print(i)
+    for k, v in rd[r"[a-z]+"]:
+        print(k, v)
 
     note: redict O(n) is slower than dict O(ln(n)) class. 
     """
@@ -105,8 +110,9 @@ class redict(dict):
         pattern = re.compile(regex)
         ks = filter(pattern.match, self.keys())
 
+        #returns a tuple of (key, value)
         for k in ks:
-            yield dict.__getitem__(self, k)
+            yield (k, dict.__getitem__(self, k))
 
 
 
@@ -144,12 +150,12 @@ class NgramWordCreator:
         handle extreme case: index out of bounce at the last items
         """
         ngramList = []
-        for i in range(self.tokens) - n:
-            ngramList.append(self.getNgramEntry(self.tokens, i, n))
+        for i in range(len(self.tokens) - n):
+            ngramList.append(self.getNgramEntry(i, i + n))
         return ngramList
 
     def getNgramEntry(self, start, end):
-        return ' '.join(self.tokens[start:end + 1])
+        return ' '.join(self.tokens[start:end])
 
 
 
@@ -166,7 +172,53 @@ class DataProvider:
 
 
     def getCounter(self, n):
-        return Counter(ngram.getNgram(n))
+        return Counter(self.ngram.getNgram(n))
+
+    def getProbability(self, n):
+        return Probability(Counter(self.ngram.getNgram(n)))
+
+class Probability:
+    """ Probability class is a wrapper of the Counter object.
+    Contains logic implementations using Counter
+    attributes:
+        counter(Counter)
+        size
+    """
+
+    def __init__(self, counter):
+        assert len(counter) != 0, 'counter cannot be empty'
+        self.counter = counter
+        #pre compute length
+        self.size = len(self.counter)
+
+    def __getitem__(self, key):
+        return self.getCount(key)
+
+
+    def getCounter(self):
+        return self.counter
+
+    def getCount(self, word, default = 0):
+        """
+        smoothing: assume that we have seen all possible words at least once
+        since the data is not infinte, we cannot assume one correct word is 
+        not a word.
+        therefore, we set a default value to 1
+        """
+        return self.counter.get(word, default)
+
+    def getP(self, word, default = 0):
+        return self.getCount(word, default) / self.size
+
+    def getMostCommon(self, regex, n):
+        rd = redict(self.counter)
+        unsortedList = [pair for pair in rd[regex]]
+        sortedList = sorted(unsortedList, key = lambda pair: pair[1], reverse = True)
+
+        return sortedList[:n]
+
+
+
 
 
 
